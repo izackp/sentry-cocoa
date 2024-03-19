@@ -1,6 +1,6 @@
 #!/bin/bash
 sdks=( iphoneos iphonesimulator macosx appletvos appletvsimulator watchos watchsimulator xros xrsimulator )
-destinations=( "generic/platform=iOS" "name=Any iOS Simulator Device" "generic/platform=macOS" "generic/platform=tvOS" "name=Apple TV Simulator" "generic/platform=watchOs" "name=Apple Watch Simulator" "name=XR OS" "name=XR Simulator" )
+destinations=( "generic/platform=iOS" "generic/platform=iOS Simulator" "generic/platform=macOS" "generic/platform=tvOS" "generic/platform=tvOS Simulator" "generic/platform=watchOS" "generic/platform=watchOS Simulator" "name=XR OS" "name=XR Simulator" )
 
 rm -rf Carthage/
 mkdir Carthage
@@ -17,7 +17,7 @@ generate_xcframework() {
     rm -rf Carthage/DerivedData
     
     
-    for sdk in "${!sdks[@]}"; do
+    for i in "${!sdks[@]}"; do
         local sdk="${sdks[i]}"
         local destination="${destinations[i]}"
         if [[ -n "$(grep "${sdk}" <<< "$ALL_SDKS")" ]]; then
