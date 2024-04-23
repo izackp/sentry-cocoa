@@ -1,16 +1,10 @@
 import Foundation
 
-/// The bucket timestamp is calculated:
-///     ( timeIntervalSince1970 / ROLLUP_IN_SECONDS ) * ROLLUP_IN_SECONDS
-typealias BucketTimestamp = UInt64
-private let ROLLUP_IN_SECONDS: TimeInterval = 10
-
 typealias Metric = MetricBase & MetricProtocol
 
 protocol MetricProtocol {
 
     var weight: UInt { get }
-    func add(value: Double)
     func serialize() -> [String]
 }
 

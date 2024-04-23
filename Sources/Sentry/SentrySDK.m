@@ -22,9 +22,14 @@
 #import "SentrySwift.h"
 #import "SentryThreadWrapper.h"
 #import "SentryTransactionContext.h"
-#import "SentryUIDeviceWrapper.h"
+
+#if SENTRY_HAS_UIKIT
+#    import "SentryUIDeviceWrapper.h"
+#    import "SentryUIViewControllerPerformanceTracker.h"
+#endif // SENTRY_HAS_UIKIT
 
 #if SENTRY_TARGET_PROFILING_SUPPORTED
+#    import "SentryContinuousProfiler.h"
 #    import "SentryLaunchProfiling.h"
 #endif // SENTRY_TARGET_PROFILING_SUPPORTED
 
@@ -105,6 +110,11 @@ static NSDate *_Nullable startTimestamp = nil;
 + (BOOL)isEnabled
 {
     return currentHub != nil && [currentHub getClient] != nil;
+}
+
++ (SentryMetricsAPI *)metrics
+{
+    return currentHub.metrics;
 }
 
 + (BOOL)crashedLastRunCalled
@@ -214,8 +224,19 @@ static NSDate *_Nullable startTimestamp = nil;
 #endif // TARGET_OS_IOS && SENTRY_HAS_UIKIT
 
 #if SENTRY_TARGET_PROFILING_SUPPORTED
+        BOOL shouldstopAndTransmitLaunchProfile = YES;
+#    if SENTRY_HAS_UIKIT
+        if (SentryUIViewControllerPerformanceTracker.shared.enableWaitForFullDisplay) {
+            shouldstopAndTransmitLaunchProfile = NO;
+        }
+#    endif // SENTRY_HAS_UIKIT
+
         [SentryDependencyContainer.sharedInstance.dispatchQueueWrapper dispatchAsyncWithBlock:^{
-            stopLaunchProfile(hub);
+            if (shouldstopAndTransmitLaunchProfile) {
+                SENTRY_LOG_DEBUG(@"Stopping launch profile in SentrySDK.start because there will "
+                                 @"be no automatic trace to attach it to.");
+                stopAndTransmitLaunchProfile(hub);
+            }
             configureLaunchProfiling(options);
         }];
 #endif // SENTRY_TARGET_PROFILING_SUPPORTED
@@ -500,6 +521,30 @@ static NSDate *_Nullable startTimestamp = nil;
     *p = 0;
 }
 #endif
+
+#if SENTRY_TARGET_PROFILING_SUPPORTED
++ (void)startProfiler
+{
+    if (!SENTRY_ASSERT_RETURN(currentHub.client.options.enableContinuousProfiling,
+            @"You must set SentryOptions.enableContinuousProfiling to true before starting a "
+            @"continuous profiler.")) {
+        return;
+    }
+
+    [SentryContinuousProfiler start];
+}
+
++ (void)stopProfiler
+{
+    if (!SENTRY_ASSERT_RETURN(currentHub.client.options.enableContinuousProfiling,
+            @"You must set SentryOptions.enableContinuousProfiling to true before using continuous "
+            @"profiling API.")) {
+        return;
+    }
+
+    [SentryContinuousProfiler stop];
+}
+#endif // SENTRY_TARGET_PROFILING_SUPPORTED
 
 @end
 

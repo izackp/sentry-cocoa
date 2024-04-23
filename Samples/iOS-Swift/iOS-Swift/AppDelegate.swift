@@ -4,6 +4,8 @@ import UIKit
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
     
+    private var randomDistributionTimer: Timer?
+    
     var window: UIWindow?
 
     static let defaultDSN = "https://6cc9bae94def43cab8444a99e0031c28@o447951.ingest.sentry.io/5428557"
@@ -15,12 +17,16 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         let dsn = DSNStorage.shared.getDSN() ?? AppDelegate.defaultDSN
         DSNStorage.shared.saveDSN(dsn: dsn)
         
-        SentrySDK.start { options in
+        SentrySDK.start(configureOptions: { options in
             options.dsn = dsn
             options.beforeSend = { event in
                 return event
             }
             options.debug = true
+            
+            if #available(iOS 16.0, *) {
+                options.experimental.sessionReplay = SentryReplayOptions(sessionSampleRate: 0, errorSampleRate: 1, redactAllText: true, redactAllImages: true)
+            }
             
             if #available(iOS 15.0, *) {
                 options.enableMetricKit = true
@@ -58,7 +64,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             options.sessionTrackingIntervalMillis = 5_000
             options.attachScreenshot = true
             options.attachViewHierarchy = true
-            
+       
 #if targetEnvironment(simulator)
             options.enableSpotlight = true
             options.environment = "test-app"
@@ -68,6 +74,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 #endif
             options.enableTimeToFullDisplayTracing = true
             options.enablePerformanceV2 = true
+            options.enableMetrics = true
             
             options.add(inAppInclude: "iOS_External")
 
@@ -127,7 +134,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                 }
                 return scope
             }
-        }
+        })
+        
+        SentrySDK.metrics.increment(key: "app.start", value: 1.0, tags: ["view": "app-delegate"])
+
     }
     //swiftlint:enable function_body_length
 
@@ -141,6 +151,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         }
         AppDelegate.startSentry()
         
+        randomDistributionTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
+            let random = Double.random(in: 0..<1_000)
+            SentrySDK.metrics.distribution(key: "random.distribution", value: random)
+        }
+        
         if #available(iOS 15.0, *) {
             metricKit.receiveReports()
         }
@@ -152,6 +167,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         if #available(iOS 15.0, *) {
             metricKit.pauseReports()
         }
+        
+        randomDistributionTimer?.invalidate()
+        randomDistributionTimer = nil
     }
     
     // Workaround for 'Stored properties cannot be marked potentially unavailable with '@available''

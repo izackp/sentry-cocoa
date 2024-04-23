@@ -1,7 +1,9 @@
 #import "SentryProfiler+Private.h"
 
 #if SENTRY_TARGET_PROFILING_SUPPORTED
+#    import "SentryAppStartMeasurement.h"
 #    import "SentryClient+Private.h"
+#    import "SentryContinuousProfiler.h"
 #    import "SentryDateUtils.h"
 #    import "SentryDebugImageProvider.h"
 #    import "SentryDebugMeta.h"
@@ -54,33 +56,6 @@
 #        import "SentryFileManager.h"
 #        import "SentryInternalDefines.h"
 #        import "SentryLaunchProfiling.h"
-
-/**
- * A category that overrides its `+[load]` method to deliberately take a long time to run, so we can
- * see it show up in profile stack traces. Categories' `+[load]` methods are guaranteed to be called
- * after all of a module's normal class' overrides, so we can be confident the ordering will always
- * have started the launch profiler by the time this runs.
- */
-@interface
-SentryProfiler (SlowLoad)
-@end
-
-@implementation
-SentryProfiler (SlowLoad)
-+ (void)load
-{
-    SENTRY_LOG_DEBUG(@"Starting slow load method");
-    if ([NSProcessInfo.processInfo.arguments containsObject:@"--io.sentry.slow-load-method"]) {
-        NSMutableString *a = [NSMutableString string];
-        // 1,000,000 iterations takes about 225 milliseconds in the iPhone 15 simulator on an
-        // M2 macbook pro; we might have to adapt this for CI
-        for (NSUInteger i = 0; i < 4000000; i++) {
-            [a appendFormat:@"%d", arc4random() % 12345];
-        }
-    }
-    SENTRY_LOG_DEBUG(@"Finishing slow load method");
-}
-@end
 #    endif // defined(TEST) || defined(TESTCI) || defined(DEBUG)
 
 const int kSentryProfilerFrequencyHz = 101;
@@ -314,6 +289,8 @@ serializedProfileData(
     NSTimer *_timeoutTimer;
 }
 
+#    pragma mark - Private
+
 - (instancetype)init
 {
     if (!(self = [super init])) {
@@ -367,8 +344,6 @@ serializedProfileData(
     }];
 }
 
-#    pragma mark - Public
-
 + (BOOL)startWithTracer:(SentryId *)traceId
 {
     std::lock_guard<std::mutex> l(_gProfilerLock);
@@ -407,7 +382,8 @@ serializedProfileData(
 }
 
 + (nullable SentryEnvelopeItem *)createProfilingEnvelopeItemForTransaction:
-    (SentryTransaction *)transaction
+                                     (SentryTransaction *)transaction
+                                                            startTimestamp:(NSDate *)startTimestamp
 {
     SENTRY_LOG_DEBUG(@"Creating profiling envelope item");
     const auto payload = [self collectProfileBetween:transaction.startSystemTime
@@ -419,7 +395,7 @@ serializedProfileData(
         return nil;
     }
 
-    [self updateProfilePayload:payload forTransaction:transaction];
+    [self updateProfilePayload:payload forTransaction:transaction startTimestamp:startTimestamp];
     return [self createEnvelopeItemForProfilePayload:payload];
 }
 
@@ -504,10 +480,9 @@ writeProfileFile(NSDictionary<NSString *, id> *payload)
     return payload;
 }
 
-#    pragma mark - Private
-
 + (void)updateProfilePayload:(NSMutableDictionary<NSString *, id> *)payload
-              forTransaction:(SentryTransaction *)transaction;
+              forTransaction:(SentryTransaction *)transaction
+              startTimestamp:(NSDate *)startTimestamp
 {
     payload[@"platform"] = transaction.platform;
     payload[@"transaction"] = @{
@@ -516,15 +491,7 @@ writeProfileFile(NSDictionary<NSString *, id> *payload)
         @"name" : transaction.transaction,
         @"active_thread_id" : [transaction.trace.transactionContext sentry_threadInfo].threadId
     };
-    const auto timestamp = transaction.trace.originalStartTimestamp;
-    if (UNLIKELY(timestamp == nil)) {
-        SENTRY_LOG_WARN(@"There was no start timestamp on the provided transaction. Falling back "
-                        @"to old behavior of using the current time.");
-        payload[@"timestamp"]
-            = sentry_toIso8601String([SentryDependencyContainer.sharedInstance.dateProvider date]);
-    } else {
-        payload[@"timestamp"] = sentry_toIso8601String(timestamp);
-    }
+    payload[@"timestamp"] = sentry_toIso8601String(startTimestamp);
 }
 
 - (NSMutableDictionary<NSString *, id> *)serializeBetween:(uint64_t)startSystemTime
