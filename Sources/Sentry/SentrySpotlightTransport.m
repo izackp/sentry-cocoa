@@ -96,12 +96,20 @@ SentrySpotlightTransport ()
     // Empty on purpose
 }
 
-#if TEST || TESTCI
+- (void)recordLostEvent:(SentryDataCategory)category
+                 reason:(SentryDiscardReason)reason
+               quantity:(NSUInteger)quantity
+{
+    // Empty on purpose
+}
+
+#if defined(TEST) || defined(TESTCI) || defined(DEBUG)
 - (void)setStartFlushCallback:(nonnull void (^)(void))callback
 {
     // Empty on purpose
 }
-#endif
+
+#endif // defined(TEST) || defined(TESTCI) || defined(DEBUG)
 
 @end
 

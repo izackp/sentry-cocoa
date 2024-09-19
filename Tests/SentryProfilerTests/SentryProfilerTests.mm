@@ -1,17 +1,18 @@
-#import "SentryEvent+Private.h"
-#import "SentryHub+Test.h"
-#import "SentryProfileTimeseries.h"
-#import "SentryProfiler+Private.h"
-#import "SentryProfiler+Test.h"
-#import "SentryProfilerMocks.h"
-#import "SentryProfilerState+ObjCpp.h"
 #import "SentryProfilingConditionals.h"
-#import "SentryScreenFrames.h"
-#import "SentryThread.h"
-#import "SentryTransaction.h"
-#import "SentryTransactionContext+Private.h"
 
 #if SENTRY_TARGET_PROFILING_SUPPORTED
+
+#    import "SentryEvent+Private.h"
+#    import "SentryHub+Test.h"
+#    import "SentryProfileTimeseries.h"
+#    import "SentryProfiler+Private.h"
+#    import "SentryProfilerMocks.h"
+#    import "SentryProfilerSerialization+Test.h"
+#    import "SentryProfilerState+ObjCpp.h"
+#    import "SentryScreenFrames.h"
+#    import "SentryThread.h"
+#    import "SentryTransaction.h"
+#    import "SentryTransactionContext+Private.h"
 
 using namespace sentry::profiling;
 
@@ -46,16 +47,32 @@ using namespace sentry::profiling;
         @"-[SentryProfilerTests testParseFunctionNameWithBacktraceSymbolsInput]");
 }
 
+- (void)testTraceProfilerCanBeInitializedOnMainThread
+{
+    XCTAssertNotNil([[SentryProfiler alloc] initWithMode:SentryProfilerModeTrace]);
+}
+
+- (void)testTraceProfilerCanBeInitializedOffMainThread
+{
+    const auto expectation = [self expectationWithDescription:@"background initializing profiler"];
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0ul), ^{
+        XCTAssertNotNil([[SentryProfiler alloc] initWithMode:SentryProfilerModeTrace]);
+        [expectation fulfill];
+    });
+    [self waitForExpectationsWithTimeout:1.0
+                                 handler:^(NSError *_Nullable error) { NSLog(@"%@", error); }];
+}
+
 - (void)testProfilerCanBeInitializedOnMainThread
 {
-    XCTAssertNotNil([[SentryProfiler alloc] init]);
+    XCTAssertNotNil([[SentryProfiler alloc] initWithMode:SentryProfilerModeContinuous]);
 }
 
 - (void)testProfilerCanBeInitializedOffMainThread
 {
     const auto expectation = [self expectationWithDescription:@"background initializing profiler"];
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0ul), ^{
-        XCTAssertNotNil([[SentryProfiler alloc] init]);
+        XCTAssertNotNil([[SentryProfiler alloc] initWithMode:SentryProfilerModeTrace]);
         [expectation fulfill];
     });
     [self waitForExpectationsWithTimeout:1.0
@@ -169,7 +186,7 @@ using namespace sentry::profiling;
     // serialize the data as if it were captured in a transaction envelope
     const auto profileData = [state copyProfilingData];
 
-    const auto serialization = serializedProfileData(profileData, 1, 2,
+    const auto serialization = sentry_serializedTraceProfileData(profileData, 1, 2,
         sentry_profilerTruncationReasonName(SentryProfilerTruncationReasonNormal), @{}, @[],
         [[SentryHub alloc] initWithClient:nil andScope:nil]
 #    if SENTRY_HAS_UIKIT

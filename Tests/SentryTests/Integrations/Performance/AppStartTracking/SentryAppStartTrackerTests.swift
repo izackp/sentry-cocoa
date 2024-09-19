@@ -1,4 +1,3 @@
-import Nimble
 @testable import Sentry
 import SentryTestUtils
 import XCTest
@@ -47,7 +46,8 @@ class SentryAppStartTrackerTests: NotificationCenterTestCase {
                 notificationCenterWrapper: SentryNSNotificationCenterWrapper()
             )
             
-            framesTracker = SentryFramesTracker(displayLinkWrapper: displayLinkWrapper, dateProvider: currentDate, dispatchQueueWrapper: TestSentryDispatchQueueWrapper(), keepDelayedFramesDuration: 0)
+            framesTracker = SentryFramesTracker(displayLinkWrapper: displayLinkWrapper, dateProvider: currentDate, dispatchQueueWrapper: TestSentryDispatchQueueWrapper(),
+                                                notificationCenter: TestNSNotificationCenterWrapper(), keepDelayedFramesDuration: 0)
             framesTracker.start()
             
             runtimeInitTimestamp = SentryDependencyContainer.sharedInstance().dateProvider.date().addingTimeInterval(0.2)
@@ -437,7 +437,7 @@ class SentryAppStartTrackerTests: NotificationCenterTestCase {
         
         let expectedAppStartDuration = expectedDuration ?? fixture.appStartDuration
         let actualAppStartDuration = appStartMeasurement.duration
-        expect(actualAppStartDuration).to(beCloseTo(expectedAppStartDuration, within: 0.0001))
+        XCTAssertEqual(actualAppStartDuration, expectedAppStartDuration, accuracy: 0.0001)
         
         if preWarmed {
             XCTAssertEqual(fixture.moduleInitializationTimestamp, appStartMeasurement.appStartTimestamp)
@@ -445,12 +445,12 @@ class SentryAppStartTrackerTests: NotificationCenterTestCase {
             XCTAssertEqual(fixture.sysctl.processStartTimestamp, appStartMeasurement.appStartTimestamp)
         }
 
-        expect(appStartMeasurement.moduleInitializationTimestamp) == fixture.sysctl.moduleInitializationTimestamp
-        expect(appStartMeasurement.runtimeInitTimestamp) == fixture.runtimeInitTimestamp
+        XCTAssertEqual(appStartMeasurement.moduleInitializationTimestamp, fixture.sysctl.moduleInitializationTimestamp)
+        XCTAssertEqual(appStartMeasurement.runtimeInitTimestamp, fixture.runtimeInitTimestamp)
         
-        expect(appStartMeasurement.sdkStartTimestamp) == fixture.sdkStartTimestamp
-        expect(appStartMeasurement.didFinishLaunchingTimestamp) == fixture.didFinishLaunchingTimestamp
-        expect(appStartMeasurement.isPreWarmed) == preWarmed
+        XCTAssertEqual(appStartMeasurement.sdkStartTimestamp, fixture.sdkStartTimestamp)
+        XCTAssertEqual(appStartMeasurement.didFinishLaunchingTimestamp, fixture.didFinishLaunchingTimestamp)
+        XCTAssertEqual(appStartMeasurement.isPreWarmed, preWarmed)
     }
     
     private func assertValidHybridStart(type: SentryAppStartType) {

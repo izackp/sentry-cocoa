@@ -1,3 +1,4 @@
+@testable import Sentry
 import SentryTestUtils
 import XCTest
 
@@ -55,8 +56,32 @@ class SentryBreadcrumbTrackerTests: XCTestCase {
             XCTAssertEqual(try XCTUnwrap(crumb.data?["connectivity"] as? String), $0.element)
         }
     }
+    
+    func testNetworkConnectivityBreadcrumbForSessionReplay() throws {
+        let testReachability = TestSentryReachability()
+        SentryDependencyContainer.sharedInstance().reachability = testReachability
+        let sut = SentryBreadcrumbTracker()
+        sut.start(with: delegate)
+        testReachability.setReachabilityState(state: SentryConnectivityCellular)
+        sut.stop()
+                
+        guard let breadcrumb = delegate.addCrumbInvocations.invocations.dropFirst().first else {
+            XCTFail("No connectivity breadcrumb")
+            return
+        }
+        
+        let breadcrumbConverter = SentrySRDefaultBreadcrumbConverter()
+        let result = try XCTUnwrap(breadcrumbConverter.convert(from: breadcrumb) as? SentryRRWebBreadcrumbEvent)
+        
+        let crumbData = try XCTUnwrap(result.data)
+        let payload = try XCTUnwrap(crumbData["payload"] as? [String: Any])
+        let payloadData = try XCTUnwrap(payload["data"] as? [String: Any])
+        
+        XCTAssertEqual(payload["category"] as? String, "device.connectivity")
+        XCTAssertEqual(payloadData["state"] as? String, "cellular")
+    }
 
-    func testSwizzlingStarted_ViewControllerAppears_AddsUILifeCycleBreadcrumb() {
+    func testSwizzlingStarted_ViewControllerAppears_AddsUILifeCycleBreadcrumb() throws {
         let testReachability = TestSentryReachability()
         
         // We already test the network breadcrumbs in a test above. Using the `TestReachability`
@@ -97,7 +122,7 @@ class SentryBreadcrumbTrackerTests: XCTestCase {
             return
         }
 
-        let lifeCycleCrumb = crumbs[1]
+        let lifeCycleCrumb = try XCTUnwrap(crumbs.element(at: 1))
         XCTAssertEqual("navigation", lifeCycleCrumb.type)
         XCTAssertEqual("ui.lifecycle", lifeCycleCrumb.category)
         XCTAssertEqual("false", lifeCycleCrumb.data?["beingPresented"] as? String)
@@ -108,6 +133,103 @@ class SentryBreadcrumbTrackerTests: XCTestCase {
         
         clearTestState()
     }
+    
+    func testNavigationBreadcrumbForSessionReplay() throws {
+        //Call the previous test to create the breadcrumb into the delegate
+        try testSwizzlingStarted_ViewControllerAppears_AddsUILifeCycleBreadcrumb()
+        
+        let sut = SentrySRDefaultBreadcrumbConverter()
+        
+        guard let crumb = delegate.addCrumbInvocations.invocations.dropFirst().first else {
+            XCTFail("No navigation breadcrumb")
+            return
+        }
+        let result = sut.convert(from: crumb)
+        
+        let event = result?.serialize()
+        let eventData = event?["data"] as? [String: Any]
+        let eventPayload = eventData?["payload"] as? [String: Any]
+        let payloadData = eventPayload?["data"] as? [String: Any]
+        
+        XCTAssertEqual(event?["type"] as? Int, 5)
+        XCTAssertEqual(eventData?["tag"] as? String, "breadcrumb")
+        XCTAssertEqual(eventPayload?["category"] as? String, "navigation")
+        XCTAssertEqual(payloadData?["to"] as? String, "UIViewController")
+    }
+    
+    func testAppLifeCycleBreadcrumbForSessionReplay() throws {
+        let scope = Scope()
+        let client = TestClient(options: Options())
+        let hub = TestHub(client: client, andScope: scope)
+        SentrySDK.setCurrentHub(hub)
+        
+        let tracker = SentryBreadcrumbTracker()
+        tracker.start(with: delegate)
+        
+        NotificationCenter.default.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        
+        let sut = SentrySRDefaultBreadcrumbConverter()
+        guard let crumb = delegate.addCrumbInvocations.invocations.first(where: { $0.category == "app.lifecycle" }) else {
+            XCTFail("No life cycle breadcrumb")
+            return
+        }
+        let result = sut.convert(from: crumb)
+        
+        let event = result?.serialize()
+        let eventData = event?["data"] as? [String: Any]
+        let eventPayload = eventData?["payload"] as? [String: Any]
+        
+        XCTAssertEqual(event?["type"] as? Int, 5)
+        XCTAssertEqual(eventData?["tag"] as? String, "breadcrumb")
+        XCTAssertEqual(eventPayload?["category"] as? String, "app.background")
+    }
+    
+    func testSkipCrumbs_WhenSenderOrTargetIsNil() throws {
+        let swizzlingWrapper = TestSentrySwizzleWrapper()
+        SentryDependencyContainer.sharedInstance().swizzleWrapper = swizzlingWrapper
+        
+        let tracker = SentryBreadcrumbTracker()
+        tracker.start(with: delegate)
+        tracker.startSwizzle()
+        
+        swizzlingWrapper.execute(action: "methodPressed:", target: nil, sender: self, event: nil)
+        swizzlingWrapper.execute(action: "methodPressed:", target: self, sender: nil, event: nil)
+        
+        let touchCrumbs = delegate.addCrumbInvocations.invocations.filter { crumb in
+            return crumb.category == "touch"
+        }
+        XCTAssertEqual(0, touchCrumbs.count)
+    }
+    
+    func testTouchBreadcrumbForSessionReplay() throws {
+        let scope = Scope()
+        let client = TestClient(options: Options())
+        let hub = TestHub(client: client, andScope: scope)
+        SentrySDK.setCurrentHub(hub)
+        
+        let swizzlingWrapper = TestSentrySwizzleWrapper()
+        SentryDependencyContainer.sharedInstance().swizzleWrapper = swizzlingWrapper
+        
+        let tracker = SentryBreadcrumbTracker()
+        tracker.start(with: delegate)
+        tracker.startSwizzle()
+        
+        swizzlingWrapper.execute(action: "methodPressed:", target: self, sender: self, event: nil)
+        
+        let sut = SentrySRDefaultBreadcrumbConverter()
+        guard let crumb = delegate.addCrumbInvocations.invocations.first(where: { $0.category == "touch" }) else {
+            XCTFail("No touch breadcrumb")
+            return
+        }
+               
+        let result = try XCTUnwrap(sut.convert(from: crumb) as? SentryRRWebBreadcrumbEvent)
+        let crumbData = try XCTUnwrap(result.data)
+        let payload = try XCTUnwrap(crumbData["payload"] as? [String: Any])
+        
+        XCTAssertEqual(payload["category"] as? String, "ui.tap")
+        XCTAssertEqual(payload["message"] as? String, "methodPressed:")
+    }
+    
 #endif
 
 }

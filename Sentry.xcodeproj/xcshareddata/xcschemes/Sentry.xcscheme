@@ -15,7 +15,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "63AA759A1EB8AEF500D153DE"
-               BuildableName = "Sentry.framework"
+               BuildableName = ".framework"
                BlueprintName = "Sentry"
                ReferencedContainer = "container:Sentry.xcodeproj">
             </BuildableReference>
@@ -32,7 +32,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "63AA759A1EB8AEF500D153DE"
-            BuildableName = "Sentry.framework"
+            BuildableName = ".framework"
             BlueprintName = "Sentry"
             ReferencedContainer = "container:Sentry.xcodeproj">
          </BuildableReference>
@@ -40,7 +40,7 @@
       <EnvironmentVariables>
          <EnvironmentVariable
             key = "TSAN_OPTIONS"
-            value = "suppressions=$(PROJECT_DIR)/Tests/ThreadSanitizer.sup"
+            value = "suppressions=$(PROJECT_DIR)/Sources/Resources/ThreadSanitizer.sup"
             isEnabled = "YES">
          </EnvironmentVariable>
       </EnvironmentVariables>
@@ -56,6 +56,18 @@
             </BuildableReference>
             <SkippedTests>
                <Test
+                  Identifier = "SentryANRTrackerTests/testANRButAppInBackground_NoANR()">
+               </Test>
+               <Test
+                  Identifier = "SentryANRTrackerTests/testMultipleListeners()">
+               </Test>
+               <Test
+                  Identifier = "SentryCoreDataTrackerTests/testFetchRequestBackgroundThread()">
+               </Test>
+               <Test
+                  Identifier = "SentryCoreDataTrackerTests/testSaveBackgroundThread()">
+               </Test>
+               <Test
                   Identifier = "SentryCrashIntegrationTests/testStartUpCrash_CallsFlush()">
                </Test>
                <Test
@@ -65,7 +77,13 @@
                   Identifier = "SentryCrashReportStore_Tests/testDeleteAllReports">
                </Test>
                <Test
+                  Identifier = "SentryCrashReportStore_Tests/testStoresLoadsMultipleReports">
+               </Test>
+               <Test
                   Identifier = "SentryNetworkTrackerIntegrationTests/testGetCaptureFailedRequestsEnabled()">
+               </Test>
+               <Test
+                  Identifier = "SentryNetworkTrackerIntegrationTests/testGetRequest_CompareSentryTraceHeader()">
                </Test>
                <Test
                   Identifier = "SentryProfilerSwiftTests/testConcurrentSpansWithTimeout()">
@@ -84,6 +102,9 @@
                </Test>
                <Test
                   Identifier = "SentrySubClassFinderTests/testActOnSubclassesOfViewController()">
+               </Test>
+               <Test
+                  Identifier = "SentryThreadInspectorTests/testGetCurrentThreadsWithStacktrace_WithSymbolication()">
                </Test>
                <Test
                   Identifier = "SentryThreadInspectorTests/testStacktraceHasFrames_forEveryThread()">
@@ -105,6 +126,11 @@
                BlueprintName = "SentryProfilerTests"
                ReferencedContainer = "container:Sentry.xcodeproj">
             </BuildableReference>
+            <SkippedTests>
+               <Test
+                  Identifier = "SentryProfilerTests/testProfilerMutationDuringSlicing">
+               </Test>
+            </SkippedTests>
          </TestableReference>
       </Testables>
    </TestAction>
@@ -122,11 +148,18 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "63AA759A1EB8AEF500D153DE"
-            BuildableName = "Sentry.framework"
+            BuildableName = ".framework"
             BlueprintName = "Sentry"
             ReferencedContainer = "container:Sentry.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
+      <EnvironmentVariables>
+         <EnvironmentVariable
+            key = "TSAN_OPTIONS"
+            value = "suppressions=$(PROJECT_DIR)/Sources/Resources/ThreadSanitizer.sup"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+      </EnvironmentVariables>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"
@@ -138,7 +171,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "63AA759A1EB8AEF500D153DE"
-            BuildableName = "Sentry.framework"
+            BuildableName = ".framework"
             BlueprintName = "Sentry"
             ReferencedContainer = "container:Sentry.xcodeproj">
          </BuildableReference>

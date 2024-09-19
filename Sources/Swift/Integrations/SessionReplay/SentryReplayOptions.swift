@@ -2,6 +2,31 @@ import Foundation
 
 @objcMembers
 public class SentryReplayOptions: NSObject, SentryRedactOptions {
+    
+    /**
+     * Enum to define the quality of the session replay.
+     */
+    @objc
+    public enum SentryReplayQuality: Int {
+        /**
+         * Video Scale: 80%
+         * Bit Rate: 20.000
+         */
+        case low
+        
+        /**
+         * Video Scale: 100%
+         * Bit Rate: 40.000
+         */
+        case medium
+        
+        /**
+         * Video Scale: 100%
+         * Bit Rate: 60.000
+         */
+        case high
+    }
+    
     /**
      * Indicates the percentage in which the replay for the session will be created.
      * - Specifying @c 0 means never, @c 1.0 means always.
@@ -18,7 +43,7 @@ public class SentryReplayOptions: NSObject, SentryRedactOptions {
      * to the default.
      * - note: The default is 0.
      */
-    public var errorSampleRate: Float
+    public var onErrorSampleRate: Float
     
     /**
      * Indicates whether session replay should redact all text in the app
@@ -37,23 +62,51 @@ public class SentryReplayOptions: NSObject, SentryRedactOptions {
     public var redactAllImages = true
     
     /**
-     * Defines the quality of the session replay.
-     * Higher bit rates better quality, but also bigger files to transfer.
-     * @note The default value is @c 20000;
+     * Indicates the quality of the replay.
+     * The higher the quality, the higher the CPU and bandwidth usage.
      */
-    let replayBitRate = 20_000
+    public var quality = SentryReplayQuality.low
     
     /**
-     * Number of frames per second of the replay.
-     * The more the havier the process is.
+     * A list of custom UIView subclasses that need 
+     * to be masked during session replay.
+     * By default Sentry already mask text elements from UIKit
      */
-    let frameRate = 1
+    public var redactViewTypes = [AnyClass]()
+    
+    /**
+     * A list of custom UIView subclasses to be ignored
+     * during masking step of the session replay.
+     * The view itself and any child will be ignored and not masked.
+     */
+    public var ignoreRedactViewTypes = [AnyClass]()
+    
+    /**
+     * Defines the quality of the session replay.
+     * Higher bit rates better quality, but also bigger files to transfer.
+     */
+    var replayBitRate: Int {
+        quality.rawValue * 20_000 + 20_000
+    }
     
     /**
      * The scale related to the window size at which the replay will be created
      */
-    let sizeScale = 0.8
+    var sizeScale: Float {
+        quality == .low ? 0.8 : 1.0
+    }
    
+    /**
+     * Number of frames per second of the replay.
+     * The more the havier the process is.
+     * The minimum is 1, if set to zero this will change to 1.
+     */
+    var frameRate: UInt = 1 {
+        didSet {
+            if frameRate < 1 { frameRate = 1 }
+        }
+    }
+        
     /**
      * The maximum duration of replays for error events.
      */
@@ -74,7 +127,7 @@ public class SentryReplayOptions: NSObject, SentryRedactOptions {
      */
     public override init() {
         self.sessionSampleRate = 0
-        self.errorSampleRate = 0
+        self.onErrorSampleRate = 0
     }
     
     /**
@@ -84,9 +137,9 @@ public class SentryReplayOptions: NSObject, SentryRedactOptions {
      *  - errorSampleRate Indicates the percentage in which a 30 seconds replay will be send with
      * error events.
      */
-    public init(sessionSampleRate: Float = 0, errorSampleRate: Float = 0, redactAllText: Bool = true, redactAllImages: Bool = true) {
+    public init(sessionSampleRate: Float = 0, onErrorSampleRate: Float = 0, redactAllText: Bool = true, redactAllImages: Bool = true) {
         self.sessionSampleRate = sessionSampleRate
-        self.errorSampleRate = errorSampleRate
+        self.onErrorSampleRate = onErrorSampleRate
         self.redactAllText = redactAllText
         self.redactAllImages = redactAllImages
     }
@@ -96,6 +149,6 @@ public class SentryReplayOptions: NSObject, SentryRedactOptions {
         let onErrorSampleRate = (dictionary["errorSampleRate"] as? NSNumber)?.floatValue ?? 0
         let redactAllText = (dictionary["redactAllText"] as? NSNumber)?.boolValue ?? true
         let redactAllImages = (dictionary["redactAllImages"] as? NSNumber)?.boolValue ?? true
-        self.init(sessionSampleRate: sessionSampleRate, errorSampleRate: onErrorSampleRate, redactAllText: redactAllText, redactAllImages: redactAllImages)
+        self.init(sessionSampleRate: sessionSampleRate, onErrorSampleRate: onErrorSampleRate, redactAllText: redactAllText, redactAllImages: redactAllImages)
     }
 }

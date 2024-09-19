@@ -9,7 +9,6 @@
 #import "SentryEnvelopeItemHeader.h"
 #import "SentryError.h"
 #import "SentryEvent.h"
-#import "SentryFileContents.h"
 #import "SentryInternalDefines.h"
 #import "SentryLog.h"
 #import "SentryMigrateSessionInit.h"
@@ -199,7 +198,7 @@ SentryFileManager ()
     NSFileManager *fileManager = [NSFileManager defaultManager];
     NSData *content = [fileManager contentsAtPath:finalPath];
     if (nil != content) {
-        return [[SentryFileContents alloc] initWithPath:finalPath andContents:content];
+        return [[SentryFileContents alloc] initWithPath:finalPath contents:content];
     } else {
         return nil;
     }
@@ -313,7 +312,7 @@ SentryFileManager ()
 
 - (NSString *)storeEnvelope:(SentryEnvelope *)envelope
 {
-    NSData *envelopeData = [SentrySerialization dataWithEnvelope:envelope error:nil];
+    NSData *envelopeData = [SentrySerialization dataWithEnvelope:envelope];
 
     @synchronized(self) {
         NSString *path =
@@ -365,7 +364,7 @@ SentryFileManager ()
                 continue;
             }
 
-            [_delegate envelopeItemDeleted:rateLimitCategory];
+            [_delegate envelopeItemDeleted:item withCategory:rateLimitCategory];
         }
 
         [self removeFileAtPath:envelopeFilePath];
@@ -728,7 +727,6 @@ SentryFileManager ()
     self.envelopesPath = [self.sentryPath stringByAppendingPathComponent:EnvelopesPathComponent];
 }
 
-#if SENTRY_TARGET_PROFILING_SUPPORTED
 /**
  * @note This method must be statically accessible because it will be called during app launch,
  * before any instance of @c SentryFileManager exists, and so wouldn't be able to access this path
@@ -751,6 +749,8 @@ NSString *_Nullable sentryApplicationSupportPath(void)
     });
     return sentryApplicationSupportPath;
 }
+
+#if SENTRY_TARGET_PROFILING_SUPPORTED
 
 NSURL *_Nullable sentryLaunchConfigFileURL = nil;
 

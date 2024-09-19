@@ -1,10 +1,12 @@
 #import "SentryANRTracker.h"
+#import "SentryANRTrackerV2.h"
 #import "SentryBinaryImageCache.h"
 #import "SentryDispatchFactory.h"
 #import "SentryDispatchQueueWrapper.h"
 #import "SentryDisplayLinkWrapper.h"
 #import "SentryExtraContextProvider.h"
 #import "SentryFileManager.h"
+#import "SentryInternalCDefines.h"
 #import "SentryLog.h"
 #import "SentryNSProcessInfoWrapper.h"
 #import "SentryNSTimerFactory.h"
@@ -120,7 +122,8 @@ static NSObject *sentryDependencyContainerLock;
     }
 }
 
-- (SentryCrashWrapper *)crashWrapper
+- (SentryCrashWrapper *)crashWrapper SENTRY_DISABLE_THREAD_SANITIZER(
+    "double-checked lock produce false alarms")
 {
     if (_crashWrapper == nil) {
         @synchronized(sentryDependencyContainerLock) {
@@ -132,7 +135,8 @@ static NSObject *sentryDependencyContainerLock;
     return _crashWrapper;
 }
 
-- (SentryCrash *)crashReporter
+- (SentryCrash *)crashReporter SENTRY_DISABLE_THREAD_SANITIZER(
+    "double-checked lock produce false alarms")
 {
     if (_crashReporter == nil) {
         @synchronized(sentryDependencyContainerLock) {
@@ -145,7 +149,8 @@ static NSObject *sentryDependencyContainerLock;
     return _crashReporter;
 }
 
-- (SentrySysctl *)sysctlWrapper
+- (SentrySysctl *)sysctlWrapper SENTRY_DISABLE_THREAD_SANITIZER(
+    "double-checked lock produce false alarms")
 {
     if (_sysctlWrapper == nil) {
         @synchronized(sentryDependencyContainerLock) {
@@ -157,7 +162,8 @@ static NSObject *sentryDependencyContainerLock;
     return _sysctlWrapper;
 }
 
-- (SentryThreadInspector *)threadInspector
+- (SentryThreadInspector *)threadInspector SENTRY_DISABLE_THREAD_SANITIZER(
+    "double-checked lock produce false alarms")
 {
     if (_threadInspector == nil) {
         @synchronized(sentryDependencyContainerLock) {
@@ -170,7 +176,8 @@ static NSObject *sentryDependencyContainerLock;
     return _threadInspector;
 }
 
-- (SentryExtraContextProvider *)extraContextProvider
+- (SentryExtraContextProvider *)extraContextProvider SENTRY_DISABLE_THREAD_SANITIZER(
+    "double-checked lock produce false alarms")
 {
     if (_extraContextProvider == nil) {
         @synchronized(sentryDependencyContainerLock) {
@@ -192,10 +199,10 @@ static NSObject *sentryDependencyContainerLock;
     }
 }
 
-#if TARGET_OS_IOS
-- (SentryUIDeviceWrapper *)uiDeviceWrapper
+#if SENTRY_HAS_UIKIT
+- (SentryUIDeviceWrapper *)uiDeviceWrapper SENTRY_DISABLE_THREAD_SANITIZER(
+    "double-checked lock produce false alarms")
 {
-#    if SENTRY_HAS_UIKIT
     if (_uiDeviceWrapper == nil) {
         @synchronized(sentryDependencyContainerLock) {
             if (_uiDeviceWrapper == nil) {
@@ -204,17 +211,13 @@ static NSObject *sentryDependencyContainerLock;
         }
     }
     return _uiDeviceWrapper;
-#    else
-    SENTRY_LOG_DEBUG(
-        @"SentryDependencyContainer.uiDeviceWrapper only works with UIKit enabled. Ensure you're "
-        @"using the right configuration of Sentry that links UIKit.");
-    return nil;
-#    endif // SENTRY_HAS_UIKIT
 }
-#endif // TARGET_OS_IOS
+
+#endif // SENTRY_HAS_UIKIT
 
 #if SENTRY_UIKIT_AVAILABLE
-- (SentryScreenshot *)screenshot
+- (SentryScreenshot *)screenshot SENTRY_DISABLE_THREAD_SANITIZER(
+    "double-checked lock produce false alarms")
 {
 #    if SENTRY_HAS_UIKIT
     if (_screenshot == nil) {
@@ -233,7 +236,8 @@ static NSObject *sentryDependencyContainerLock;
 #    endif // SENTRY_HAS_UIKIT
 }
 
-- (SentryViewHierarchy *)viewHierarchy
+- (SentryViewHierarchy *)viewHierarchy SENTRY_DISABLE_THREAD_SANITIZER(
+    "double-checked lock produce false alarms")
 {
 #    if SENTRY_HAS_UIKIT
     if (_viewHierarchy == nil) {
@@ -252,7 +256,8 @@ static NSObject *sentryDependencyContainerLock;
 #    endif // SENTRY_HAS_UIKIT
 }
 
-- (SentryUIApplication *)application
+- (SentryUIApplication *)application SENTRY_DISABLE_THREAD_SANITIZER(
+    "double-checked lock produce false alarms")
 {
 #    if SENTRY_HAS_UIKIT
     if (_application == nil) {
@@ -271,7 +276,8 @@ static NSObject *sentryDependencyContainerLock;
 #    endif // SENTRY_HAS_UIKIT
 }
 
-- (SentryFramesTracker *)framesTracker
+- (SentryFramesTracker *)framesTracker SENTRY_DISABLE_THREAD_SANITIZER(
+    "double-checked lock produce false alarms")
 {
 #    if SENTRY_HAS_UIKIT
     if (_framesTracker == nil) {
@@ -281,6 +287,7 @@ static NSObject *sentryDependencyContainerLock;
                     initWithDisplayLinkWrapper:[[SentryDisplayLinkWrapper alloc] init]
                                   dateProvider:self.dateProvider
                           dispatchQueueWrapper:self.dispatchQueueWrapper
+                            notificationCenter:self.notificationCenterWrapper
                      keepDelayedFramesDuration:SENTRY_AUTO_TRANSACTION_MAX_DURATION];
             }
         }
@@ -294,7 +301,34 @@ static NSObject *sentryDependencyContainerLock;
 #    endif // SENTRY_HAS_UIKIT
 }
 
-- (SentrySwizzleWrapper *)swizzleWrapper
+- (SentryANRTrackerV2 *)getANRTrackerV2:(NSTimeInterval)timeout
+    SENTRY_DISABLE_THREAD_SANITIZER("double-checked lock produce false alarms")
+{
+#    if SENTRY_HAS_UIKIT
+    if (_anrTrackerV2 == nil) {
+        @synchronized(sentryDependencyContainerLock) {
+            if (_anrTrackerV2 == nil) {
+                _anrTrackerV2 =
+                    [[SentryANRTrackerV2 alloc] initWithTimeoutInterval:timeout
+                                                           crashWrapper:self.crashWrapper
+                                                   dispatchQueueWrapper:self.dispatchQueueWrapper
+                                                          threadWrapper:self.threadWrapper
+                                                          framesTracker:self.framesTracker];
+            }
+        }
+    }
+
+    return _anrTrackerV2;
+#    else
+    SENTRY_LOG_DEBUG(
+        @"SentryDependencyContainer.getANRTrackerV2 only works with UIKit enabled. Ensure you're "
+        @"using the right configuration of Sentry that links UIKit.");
+    return nil;
+#    endif // SENTRY_HAS_UIKIT
+}
+
+- (SentrySwizzleWrapper *)swizzleWrapper SENTRY_DISABLE_THREAD_SANITIZER(
+    "double-checked lock produce false alarms")
 {
 #    if SENTRY_HAS_UIKIT
     if (_swizzleWrapper == nil) {
@@ -315,6 +349,7 @@ static NSObject *sentryDependencyContainerLock;
 #endif // SENTRY_UIKIT_AVAILABLE
 
 - (SentryANRTracker *)getANRTracker:(NSTimeInterval)timeout
+    SENTRY_DISABLE_THREAD_SANITIZER("double-checked lock produce false alarms")
 {
     if (_anrTracker == nil) {
         @synchronized(sentryDependencyContainerLock) {
@@ -331,7 +366,8 @@ static NSObject *sentryDependencyContainerLock;
     return _anrTracker;
 }
 
-- (SentryNSProcessInfoWrapper *)processInfoWrapper
+- (SentryNSProcessInfoWrapper *)processInfoWrapper SENTRY_DISABLE_THREAD_SANITIZER(
+    "double-checked lock produce false alarms")
 {
     if (_processInfoWrapper == nil) {
         @synchronized(sentryDependencyContainerLock) {
@@ -343,7 +379,8 @@ static NSObject *sentryDependencyContainerLock;
     return _processInfoWrapper;
 }
 
-- (SentrySystemWrapper *)systemWrapper
+- (SentrySystemWrapper *)systemWrapper SENTRY_DISABLE_THREAD_SANITIZER(
+    "double-checked lock produce false alarms")
 {
     if (_systemWrapper == nil) {
         @synchronized(sentryDependencyContainerLock) {
@@ -355,7 +392,8 @@ static NSObject *sentryDependencyContainerLock;
     return _systemWrapper;
 }
 
-- (SentryDispatchFactory *)dispatchFactory
+- (SentryDispatchFactory *)dispatchFactory SENTRY_DISABLE_THREAD_SANITIZER(
+    "double-checked lock produce false alarms")
 {
     if (_dispatchFactory == nil) {
         @synchronized(sentryDependencyContainerLock) {
@@ -367,7 +405,8 @@ static NSObject *sentryDependencyContainerLock;
     return _dispatchFactory;
 }
 
-- (SentryNSTimerFactory *)timerFactory
+- (SentryNSTimerFactory *)timerFactory SENTRY_DISABLE_THREAD_SANITIZER(
+    "double-checked lock produce false alarms")
 {
     if (_timerFactory == nil) {
         @synchronized(sentryDependencyContainerLock) {
@@ -380,7 +419,8 @@ static NSObject *sentryDependencyContainerLock;
 }
 
 #if SENTRY_HAS_METRIC_KIT
-- (SentryMXManager *)metricKitManager
+- (SentryMXManager *)metricKitManager SENTRY_DISABLE_THREAD_SANITIZER(
+    "double-checked lock produce false alarms")
 {
     if (_metricKitManager == nil) {
         @synchronized(sentryDependencyContainerLock) {
@@ -399,7 +439,8 @@ static NSObject *sentryDependencyContainerLock;
 #endif // SENTRY_HAS_METRIC_KIT
 
 #if SENTRY_HAS_REACHABILITY
-- (SentryReachability *)reachability
+- (SentryReachability *)reachability SENTRY_DISABLE_THREAD_SANITIZER(
+    "double-checked lock produce false alarms")
 {
     if (_reachability == nil) {
         @synchronized(sentryDependencyContainerLock) {

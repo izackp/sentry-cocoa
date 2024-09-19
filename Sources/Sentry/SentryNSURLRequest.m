@@ -17,13 +17,6 @@ NS_ASSUME_NONNULL_BEGIN
 NSString *const SentryServerVersionString = @"7";
 NSTimeInterval const SentryRequestTimeout = 15;
 
-@interface
-SentryNSURLRequest ()
-
-@property (nonatomic, strong) SentryDsn *dsn;
-
-@end
-
 @implementation SentryNSURLRequest
 
 - (_Nullable instancetype)initStoreRequestWithDsn:(SentryDsn *)dsn
@@ -102,6 +95,8 @@ SentryNSURLRequest ()
             forHTTPHeaderField:@"User-Agent"];
         [self setValue:@"gzip" forHTTPHeaderField:@"Content-Encoding"];
         self.HTTPBody = sentry_gzippedWithCompressionLevel(data, -1, error);
+
+        SENTRY_LOG_DEBUG(@"Constructed request: %@", self);
     }
 
     return self;

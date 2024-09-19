@@ -1,4 +1,4 @@
-#import "SentrySpan.h"
+#import "SentryBaggage.h"
 #import "SentryCrashThread.h"
 #import "SentryDependencyContainer.h"
 #import "SentryFrame.h"
@@ -8,11 +8,13 @@
 #import "SentryNSDictionarySanitize.h"
 #import "SentryNoOpSpan.h"
 #import "SentrySampleDecision+Private.h"
+#import "SentrySpan+Private.h"
 #import "SentrySpanContext.h"
 #import "SentrySpanId.h"
 #import "SentrySwift.h"
 #import "SentryThreadInspector.h"
 #import "SentryTime.h"
+#import "SentryTraceContext.h"
 #import "SentryTraceHeader.h"
 #import "SentryTracer.h"
 
@@ -20,6 +22,14 @@
 #    import <SentryFramesTracker.h>
 #    import <SentryScreenFrames.h>
 #endif // SENTRY_HAS_UIKIT
+
+#if SENTRY_TARGET_PROFILING_SUPPORTED
+#    import "SentryContinuousProfiler.h"
+#    import "SentryNSNotificationCenterWrapper.h"
+#    import "SentryOptions+Private.h"
+#    import "SentryProfilingConditionals.h"
+#    import "SentrySDK+Private.h"
+#endif // SENTRY_TARGET_PROFILING_SUPPORTED
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -40,6 +50,10 @@ SentrySpan ()
     NSUInteger initFrozenFrames;
     SentryFramesTracker *_framesTracker;
 #endif // SENTRY_HAS_UIKIT
+
+#if SENTRY_TARGET_PROFILING_SUPPORTED
+    BOOL _isContinuousProfiling;
+#endif //  SENTRY_TARGET_PROFILING_SUPPORTED
 }
 
 - (instancetype)initWithContext:(SentrySpanContext *)context
@@ -84,9 +98,44 @@ SentrySpan ()
         _spanId = context.spanId;
         _sampled = context.sampled;
         _origin = context.origin;
+
+#if SENTRY_TARGET_PROFILING_SUPPORTED
+        _isContinuousProfiling = [SentrySDK.options isContinuousProfilingEnabled];
+        if (_isContinuousProfiling) {
+            _profileSessionID = SentryContinuousProfiler.currentProfilerID.sentryIdString;
+            if (_profileSessionID == nil) {
+                [SentryDependencyContainer.sharedInstance.notificationCenterWrapper
+                    addObserver:self
+                       selector:@selector(linkProfiler)
+                           name:kSentryNotificationContinuousProfileStarted];
+            }
+        }
+#endif // SENTRY_TARGET_PROFILING_SUPPORTED
     }
     return self;
 }
+
+#if SENTRY_TARGET_PROFILING_SUPPORTED
+- (void)dealloc
+{
+    [self stopObservingContinuousProfiling];
+}
+
+- (void)linkProfiler
+{
+    _profileSessionID = SentryContinuousProfiler.currentProfilerID.sentryIdString;
+    [self stopObservingContinuousProfiling];
+}
+
+- (void)stopObservingContinuousProfiling
+{
+    if (_isContinuousProfiling) {
+        [SentryDependencyContainer.sharedInstance.notificationCenterWrapper
+            removeObserver:self
+                      name:kSentryNotificationContinuousProfileStarted];
+    }
+}
+#endif // SENTRY_TARGET_PROFILING_SUPPORTED
 
 - (instancetype)initWithTracer:(SentryTracer *)tracer
                        context:(SentrySpanContext *)context
@@ -194,6 +243,9 @@ SentrySpan ()
 
 - (void)finishWithStatus:(SentrySpanStatus)status
 {
+#if SENTRY_TARGET_PROFILING_SUPPORTED
+    [self stopObservingContinuousProfiling];
+#endif // SENTRY_TARGET_PROFILING_SUPPORTED
     self.status = status;
     @synchronized(_stateLock) {
         _isFinished = YES;
@@ -209,7 +261,8 @@ SentrySpan ()
 
         CFTimeInterval framesDelay = [_framesTracker
                 getFramesDelay:_startSystemTime
-            endSystemTimestamp:SentryDependencyContainer.sharedInstance.dateProvider.systemTime];
+            endSystemTimestamp:SentryDependencyContainer.sharedInstance.dateProvider.systemTime]
+                                         .delayDuration;
 
         if (framesDelay >= 0) {
             [self setDataValue:@(framesDelay) forKey:@"frames.delay"];
@@ -245,6 +298,17 @@ SentrySpan ()
     return [[SentryTraceHeader alloc] initWithTraceId:self.traceId
                                                spanId:self.spanId
                                               sampled:self.sampled];
+}
+
+// Getter for the computed property baggage
+- (nullable NSString *)baggageHttpHeader
+{
+    return [[self.tracer.traceContext toBaggage] toHTTPHeaderWithOriginalBaggage:nil];
+}
+
+- (nullable SentryTraceContext *)traceContext
+{
+    return self.tracer.traceContext;
 }
 
 - (LocalMetricsAggregator *)getLocalMetricsAggregator
@@ -322,6 +386,12 @@ SentrySpan ()
             mutableDictionary[@"tags"] = _tags.copy;
         }
     }
+
+#if SENTRY_TARGET_PROFILING_SUPPORTED
+    if (_profileSessionID != nil) {
+        mutableDictionary[@"profiler_id"] = _profileSessionID;
+    }
+#endif // SENTRY_TARGET_PROFILING_SUPPORTED
 
     return mutableDictionary;
 }

@@ -1,7 +1,6 @@
 #import "AppDelegate.h"
 @import CoreData;
 @import Sentry;
-
 @interface
 AppDelegate ()
 
@@ -26,6 +25,12 @@ AppDelegate ()
         SentryHttpStatusCodeRange *httpStatusCodeRange =
             [[SentryHttpStatusCodeRange alloc] initWithMin:400 max:599];
         options.failedRequestStatusCodes = @[ httpStatusCodeRange ];
+
+        options.experimental.sessionReplay.quality = SentryReplayQualityMedium;
+        options.experimental.sessionReplay.redactAllText = true;
+        options.experimental.sessionReplay.redactAllImages = true;
+        options.experimental.sessionReplay.sessionSampleRate = 0;
+        options.experimental.sessionReplay.onErrorSampleRate = 1;
 
         options.initialScope = ^(SentryScope *scope) {
             [scope setTagValue:@"" forKey:@""];

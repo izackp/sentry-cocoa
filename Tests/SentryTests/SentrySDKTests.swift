@@ -1,8 +1,8 @@
-import Nimble
 @testable import Sentry
 import SentryTestUtils
 import XCTest
 
+// swiftlint:disable file_length
 class SentrySDKTests: XCTestCase {
     
     private static let dsnAsString = TestConstants.dsnAsString(username: "SentrySDKTests")
@@ -47,7 +47,7 @@ class SentrySDKTests: XCTestCase {
             options.releaseName = "1.0.0"
             
             client = TestClient(options: options)!
-            hub = SentryHub(client: client, andScope: scope, andCrashWrapper: TestSentryCrashWrapper.sharedInstance())
+            hub = SentryHub(client: client, andScope: scope, andCrashWrapper: TestSentryCrashWrapper.sharedInstance(), andDispatchQueue: SentryDispatchQueueWrapper())
             
             userFeedback = UserFeedback(eventId: SentryId())
             userFeedback.comments = "Again really?"
@@ -195,19 +195,19 @@ class SentrySDKTests: XCTestCase {
     }
     
     func testCrashedLastRun() {
-        expect(SentryDependencyContainer.sharedInstance().crashReporter.crashedLastLaunch) == SentrySDK.crashedLastRun
+        XCTAssertEqual(SentryDependencyContainer.sharedInstance().crashReporter.crashedLastLaunch, SentrySDK.crashedLastRun)
     }
     
     func testDetectedStartUpCrash_DefaultValue() {
-        expect(SentrySDK.detectedStartUpCrash) == false
+        XCTAssertFalse(SentrySDK.detectedStartUpCrash)
     }
     
     func testDetectedStartUpCrash() {
         SentrySDK.setDetectedStartUpCrash(true)
-        expect(SentrySDK.detectedStartUpCrash) == true
+        XCTAssertEqual(SentrySDK.detectedStartUpCrash, true)
         
         SentrySDK.setDetectedStartUpCrash(false)
-        expect(SentrySDK.detectedStartUpCrash) == false
+        XCTAssertFalse(SentrySDK.detectedStartUpCrash)
     }
     
     func testCaptureCrashEvent() {
@@ -389,7 +389,7 @@ class SentrySDKTests: XCTestCase {
         XCTAssertEqual(event?.user, user)
     }
     
-    func testStartTransaction() {
+    func testStartTransaction() throws {
         givenSdkWithHub()
         
         let operation = "ui.load"
@@ -397,23 +397,68 @@ class SentrySDKTests: XCTestCase {
         let transaction = SentrySDK.startTransaction(name: name, operation: operation)
         
         XCTAssertEqual(operation, transaction.operation)
-        let tracer = transaction as! SentryTracer
-        XCTAssertEqual(name, tracer.traceContext.transaction)
+        let tracer = try XCTUnwrap(transaction as? SentryTracer)
+        XCTAssertEqual(name, tracer.traceContext?.transaction)
         
         XCTAssertNil(SentrySDK.span)
     }
     
-    func testStartTransaction_WithBindToScope() {
+    func testStartTransaction_WithBindToScope() throws {
         givenSdkWithHub()
         
         let transaction = SentrySDK.startTransaction(name: fixture.transactionName, operation: fixture.operation, bindToScope: true)
         
-        assertTransaction(transaction: transaction)
+        XCTAssertEqual(fixture.operation, transaction.operation)
+        let tracer = try XCTUnwrap(transaction as? SentryTracer)
+        XCTAssertEqual(fixture.transactionName, tracer.traceContext?.transaction)
+        XCTAssertEqual(.custom, tracer.transactionContext.nameSource)
         
         let newSpan = SentrySDK.span
         
         XCTAssert(transaction === newSpan)
     }
+    
+#if os(iOS) || os(macOS) || targetEnvironment(macCatalyst)
+
+    func testStartingContinuousProfilerWithSampleRateZero() throws {
+        givenSdkWithHub()
+        
+        fixture.options.profilesSampleRate = 0
+        XCTAssertEqual(try XCTUnwrap(fixture.options.profilesSampleRate).doubleValue, 0)
+
+        XCTAssertFalse(SentryContinuousProfiler.isCurrentlyProfiling())
+        SentrySDK.startProfiler()
+        XCTAssertFalse(SentryContinuousProfiler.isCurrentlyProfiling())
+    }
+
+    func testStartingContinuousProfilerWithSampleRateNil() throws {
+        givenSdkWithHub()
+        
+        // nil is the default initial value for profilesSampleRate, so we don't have to explicitly set it on the fixture
+        XCTAssertFalse(SentryContinuousProfiler.isCurrentlyProfiling())
+        SentrySDK.startProfiler()
+        XCTAssert(SentryContinuousProfiler.isCurrentlyProfiling())
+    }
+
+    func testNotStartingContinuousProfilerWithSampleRateBlock() throws {
+        givenSdkWithHub()
+        
+        fixture.options.profilesSampler = { _ in 0 }
+        XCTAssertFalse(SentryContinuousProfiler.isCurrentlyProfiling())
+        SentrySDK.startProfiler()
+        XCTAssertFalse(SentryContinuousProfiler.isCurrentlyProfiling())
+    }
+    
+    func testNotStartingContinuousProfilerWithSampleRateNonZero() throws {
+        givenSdkWithHub()
+
+        fixture.options.profilesSampleRate = 1
+        XCTAssertFalse(SentryContinuousProfiler.isCurrentlyProfiling())
+        SentrySDK.startProfiler()
+        XCTAssertFalse(SentryContinuousProfiler.isCurrentlyProfiling())
+    }
+    
+#endif // os(iOS) || os(macOS) || targetEnvironment(macCatalyst)
     
     func testInstallIntegrations() throws {
         let options = Options()
@@ -521,17 +566,17 @@ class SentrySDKTests: XCTestCase {
         let currentDateProvider = TestCurrentDateProvider()
         SentryDependencyContainer.sharedInstance().dateProvider = currentDateProvider
         
-        expect(SentrySDK.startTimestamp) == nil
+        XCTAssertNil(SentrySDK.startTimestamp)
         
         SentrySDK.start { options in
             options.dsn = SentrySDKTests.dsnAsString
             options.removeAllIntegrations()
         }
         
-        expect(SentrySDK.startTimestamp) == currentDateProvider.date()
+        XCTAssertEqual(SentrySDK.startTimestamp, currentDateProvider.date())
         
         SentrySDK.close()
-        expect(SentrySDK.startTimestamp) == nil
+        XCTAssertNil(SentrySDK.startTimestamp)
     }
     
     func testIsEnabled() {
@@ -647,7 +692,65 @@ class SentrySDKTests: XCTestCase {
         SentrySDK.close()
         XCTAssertFalse(deviceWrapper.started)
     }
+    
+    /// Ensure to start the UIDeviceWrapper before initializing the hub, so enrich scope sets the correct OS version.
+    func testStartSDK_ScopeContextContainsOSVersion() throws {
+        let expectation = expectation(description: "MainThreadTestIntegration install called")
+        MainThreadTestIntegration.expectation = expectation
+        
+        DispatchQueue.global(qos: .default).async {
+            SentrySDK.start { options in
+                options.integrations = [ NSStringFromClass(MainThreadTestIntegration.self) ]
+            }
+        }
+        
+        wait(for: [expectation], timeout: 1.0)
+        
+        let os = try XCTUnwrap (SentrySDK.currentHub().scope.contextDictionary["os"] as? [String: Any])
+#if !targetEnvironment(macCatalyst)
+        XCTAssertEqual(UIDevice.current.systemVersion, os["version"] as? String)
 #endif
+    }
+#endif
+    
+    func testResumeAndPauseAppHangTracking() {
+        SentrySDK.start { options in
+            options.dsn = SentrySDKTests.dsnAsString
+            options.setIntegrations([SentryANRTrackingIntegration.self])
+        }
+        
+        let client = fixture.client
+        SentrySDK.currentHub().bindClient(client)
+        
+        let anrTrackingIntegration = SentrySDK.currentHub().getInstalledIntegration(SentryANRTrackingIntegration.self)
+        
+        SentrySDK.pauseAppHangTracking()
+        Dynamic(anrTrackingIntegration).anrDetected()
+        XCTAssertEqual(0, client.captureEventWithScopeInvocations.count)
+        
+        SentrySDK.resumeAppHangTracking()
+        Dynamic(anrTrackingIntegration).anrDetected()
+        
+        if SentryDependencyContainer.sharedInstance().crashWrapper.isBeingTraced() {
+            XCTAssertEqual(0, client.captureEventWithScopeInvocations.count)
+        } else {
+            XCTAssertEqual(1, client.captureEventWithScopeInvocations.count)
+        }
+    }
+    
+    func testResumeAndPauseAppHangTracking_ANRTrackingNotInstalled() {
+        SentrySDK.start { options in
+            options.dsn = SentrySDKTests.dsnAsString
+            options.removeAllIntegrations()
+        }
+        
+        let client = fixture.client
+        SentrySDK.currentHub().bindClient(client)
+
+        // Both invocations do nothing
+        SentrySDK.pauseAppHangTracking()
+        SentrySDK.resumeAppHangTracking()
+    }
 
     func testClose_SetsClientToNil() {
         SentrySDK.start { options in
@@ -736,17 +839,17 @@ class SentrySDKTests: XCTestCase {
         SentrySDK.metrics.increment(key: "key")
         SentrySDK.flush(timeout: 1.0)
         
-        expect(client.captureEnvelopeInvocations.count) == 1
+        XCTAssertEqual(client.captureEnvelopeInvocations.count, 1)
         
         let envelope = try XCTUnwrap(client.captureEnvelopeInvocations.first)
-        expect(envelope.header.eventId) != nil
+        XCTAssertNotNil(envelope.header.eventId)
 
         // We only check if it's an envelope with a statsd envelope item.
         // We validate the contents of the envelope in SentryMetricsClientTests
-        expect(envelope.items.count) == 1
+        XCTAssertEqual(envelope.items.count, 1)
         let envelopeItem = try XCTUnwrap(envelope.items.first)
-        expect(envelopeItem.header.type) == SentryEnvelopeItemTypeStatsd
-        expect(envelopeItem.header.contentType) == "application/octet-stream"
+        XCTAssertEqual(envelopeItem.header.type, SentryEnvelopeItemTypeStatsd)
+        XCTAssertEqual(envelopeItem.header.contentType, "application/octet-stream")
     }
     
     func testMetrics_BeforeEmitMetricCallback_DiscardEveryThing() throws {
@@ -762,7 +865,7 @@ class SentrySDKTests: XCTestCase {
         SentrySDK.metrics.increment(key: "key")
         SentrySDK.flush(timeout: 1.0)
         
-        expect(client.captureEnvelopeInvocations.count) == 0
+        XCTAssertEqual(client.captureEnvelopeInvocations.count, 0)
     }
 
 #if SENTRY_HAS_UIKIT
@@ -875,15 +978,43 @@ class SentrySDKTests: XCTestCase {
         XCTAssertEqual(fixture.scope, hubScope)
     }
     
-    private func assertTransaction(transaction: Span) {
-        XCTAssertEqual(fixture.operation, transaction.operation)
-        let tracer = transaction as! SentryTracer
-        XCTAssertEqual(fixture.transactionName, tracer.traceContext.transaction)
-        XCTAssertEqual(.custom, tracer.transactionContext.nameSource)
-    }
-    
     private func advanceTime(bySeconds: TimeInterval) {
         fixture.currentDate.setDate(date: SentryDependencyContainer.sharedInstance().dateProvider.date().addingTimeInterval(bySeconds))
+    }
+}
+
+/// Tests in this class aren't part of SentrySDKTests because we need would need to undo a bunch of operations 
+/// that are done in the setup.
+class SentrySDKWithSetupTests: XCTestCase {
+    
+    func testAccessingHubAndOptions_NoDeadlock() {
+        SentryLog.withOutLogs {
+            
+            let concurrentQueue = DispatchQueue(label: "concurrent", attributes: .concurrent)
+            
+            let expectation = expectation(description: "no deadlock")
+            expectation.expectedFulfillmentCount = 20
+            
+            SentrySDK.setStart(Options())
+            
+            for _ in 0..<10 {
+                concurrentQueue.async {
+                    SentrySDK.currentHub().capture(message: "mess")
+                    SentrySDK.setCurrentHub(nil)
+                    
+                    expectation.fulfill()
+                }
+                
+                concurrentQueue.async {
+                    let hub = SentryHub(client: nil, andScope: nil)
+                    XCTAssertNotNil(hub)
+                    
+                    expectation.fulfill()
+                }
+            }
+            
+            wait(for: [expectation], timeout: 5.0)
+        }
     }
 }
 
@@ -904,3 +1035,4 @@ public class MainThreadTestIntegration: NSObject, SentryIntegrationProtocol {
     public func uninstall() {
     }
 }
+// swiftlint:enable file_length

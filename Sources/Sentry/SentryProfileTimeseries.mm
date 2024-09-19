@@ -12,6 +12,7 @@
 #        import "SentryTime.h"
 #    endif // SENTRY_HAS_UIKIT
 
+namespace {
 /**
  * Print a debug log to help diagnose slicing errors.
  * @param start @c YES if this is an attempt to find the start of the sliced data based on the
@@ -19,7 +20,7 @@
  * transaction's end, to accurately describe what's happening in the log statement.
  */
 void
-logSlicingFailureWithArray(
+_sentry_logSlicingFailureWithArray(
     NSArray<SentrySample *> *array, uint64_t startSystemTime, uint64_t endSystemTime, BOOL start)
 {
     if (!SENTRY_CASSERT_RETURN(
@@ -43,6 +44,8 @@ logSlicingFailureWithArray(
         firstSampleRelativeToTransactionStart, lastSampleRelativeToTransactionStart);
 }
 
+} // namespace
+
 NSArray<SentrySample *> *_Nullable sentry_slicedProfileSamples(
     NSArray<SentrySample *> *samples, uint64_t startSystemTime, uint64_t endSystemTime)
 {
@@ -59,7 +62,7 @@ NSArray<SentrySample *> *_Nullable sentry_slicedProfileSamples(
     }];
 
     if (firstIndex == NSNotFound) {
-        logSlicingFailureWithArray(samples, startSystemTime, endSystemTime, /*start*/ YES);
+        _sentry_logSlicingFailureWithArray(samples, startSystemTime, endSystemTime, /*start*/ YES);
         return nil;
     } else {
         SENTRY_LOG_DEBUG(@"Found first slice sample at index %lu", firstIndex);
@@ -74,7 +77,7 @@ NSArray<SentrySample *> *_Nullable sentry_slicedProfileSamples(
                               }];
 
     if (lastIndex == NSNotFound) {
-        logSlicingFailureWithArray(samples, startSystemTime, endSystemTime, /*start*/ NO);
+        _sentry_logSlicingFailureWithArray(samples, startSystemTime, endSystemTime, /*start*/ NO);
         return nil;
     } else {
         SENTRY_LOG_DEBUG(@"Found last slice sample at index %lu", lastIndex);
@@ -86,19 +89,8 @@ NSArray<SentrySample *> *_Nullable sentry_slicedProfileSamples(
 }
 
 #    if SENTRY_HAS_UIKIT
-/**
- * Convert the data structure that records timestamps for GPU frame render info from
- * SentryFramesTracker to the structure expected for profiling metrics, and throw out any that
- * didn't occur within the profile time.
- * @param useMostRecentRecording @c SentryFramesTracker doesn't stop running once it starts.
- * Although we reset the profiling timestamps each time the profiler stops and starts, concurrent
- * transactions that start after the first one won't have a screen frame rate recorded within their
- * timeframe, because it will have already been recorded for the first transaction and isn't
- * recorded again unless the system changes it. In these cases, use the most recently recorded data
- * for it.
- */
 NSArray<SentrySerializedMetricEntry *> *
-sentry_sliceGPUData(SentryFrameInfoTimeSeries *frameInfo, uint64_t startSystemTime,
+sentry_sliceTraceProfileGPUData(SentryFrameInfoTimeSeries *frameInfo, uint64_t startSystemTime,
     uint64_t endSystemTime, BOOL useMostRecentRecording)
 {
     auto slicedGPUEntries = [NSMutableArray<SentrySerializedMetricEntry *> array];

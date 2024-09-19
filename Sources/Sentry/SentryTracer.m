@@ -5,6 +5,7 @@
 #import "SentryEvent+Private.h"
 #import "SentryFileManager.h"
 #import "SentryHub+Private.h"
+#import "SentryInternalCDefines.h"
 #import "SentryInternalDefines.h"
 #import "SentryLog.h"
 #import "SentryNSDictionarySanitize.h"
@@ -15,7 +16,7 @@
 #import "SentryRandom.h"
 #import "SentrySDK+Private.h"
 #import "SentrySamplerDecision.h"
-#import "SentryScope.h"
+#import "SentryScope+Private.h"
 #import "SentrySpan.h"
 #import "SentrySpanContext+Private.h"
 #import "SentrySpanContext.h"
@@ -37,7 +38,8 @@
 #if SENTRY_TARGET_PROFILING_SUPPORTED
 #    import "SentryLaunchProfiling.h"
 #    import "SentryProfiledTracerConcurrency.h"
-#    import "SentryProfiler+Private.h"
+#    import "SentryProfilerSerialization.h"
+#    import "SentryTraceProfiler.h"
 #endif // SENTRY_TARGET_PROFILING_SUPPORTED
 
 #if SENTRY_HAS_UIKIT
@@ -47,11 +49,6 @@
 #    import "SentryUIViewControllerPerformanceTracker.h"
 #    import <SentryScreenFrames.h>
 #endif // SENTRY_HAS_UIKIT
-
-#if defined(TEST) || defined(TESTCI)
-#    import "SentryFileManager+Test.h"
-#    import "SentryInternalDefines.h"
-#endif // defined(TEST) || defined(TESTCI)
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -112,13 +109,6 @@ SentryTracer ()
 static NSObject *appStartMeasurementLock;
 static BOOL appStartMeasurementRead;
 
-#if SENTRY_TARGET_PROFILING_SUPPORTED
-+ (void)load
-{
-    sentry_startLaunchProfile();
-}
-#endif // SENTRY_TARGET_PROFILING_SUPPORTED
-
 + (void)initialize
 {
     if (self == [SentryTracer class]) {
@@ -164,7 +154,17 @@ static BOOL appStartMeasurementRead;
     }
 
 #if SENTRY_HAS_UIKIT
-    viewNames = [SentryDependencyContainer.sharedInstance.application relevantViewControllersNames];
+    [hub configureScope:^(SentryScope *scope) {
+        if (scope.currentScreen != nil) {
+            self->viewNames = @[ scope.currentScreen ];
+        }
+    }];
+
+    if (viewNames == nil) {
+        viewNames =
+            [SentryDependencyContainer.sharedInstance.application relevantViewControllersNames];
+    }
+
 #endif // SENTRY_HAS_UIKIT
 
     _idleTimeoutLock = [[NSObject alloc] init];
@@ -189,10 +189,13 @@ static BOOL appStartMeasurementRead;
 #endif // SENTRY_HAS_UIKIT
 
 #if SENTRY_TARGET_PROFILING_SUPPORTED
-    if (_configuration.profilesSamplerDecision.decision == kSentrySampleDecisionYes
-        || sentry_isTracingAppLaunch) {
+    BOOL profileShouldBeSampled
+        = _configuration.profilesSamplerDecision.decision == kSentrySampleDecisionYes;
+    BOOL isContinuousProfiling = [hub.client.options isContinuousProfilingEnabled];
+    BOOL shouldStartNormalTraceProfile = !isContinuousProfiling && profileShouldBeSampled;
+    if (sentry_isTracingAppLaunch || shouldStartNormalTraceProfile) {
         _internalID = [[SentryId alloc] init];
-        if ((_isProfiling = [SentryProfiler startWithTracer:_internalID])) {
+        if ((_isProfiling = [SentryTraceProfiler startWithTracer:_internalID])) {
             SENTRY_LOG_DEBUG(@"Started profiler for trace %@ with internal id %@",
                 transactionContext.traceId.sentryIdString, _internalID.sentryIdString);
         }
@@ -268,7 +271,7 @@ static BOOL appStartMeasurementRead;
 - (void)startDeadlineTimer
 {
     __weak SentryTracer *weakSelf = self;
-    [_dispatchQueue dispatchOnMainQueue:^{
+    [_dispatchQueue dispatchAsyncOnMainQueue:^{
         weakSelf.deadlineTimer = [weakSelf.configuration.timerFactory
             scheduledTimerWithTimeInterval:SENTRY_AUTO_TRANSACTION_DEADLINE
                                    repeats:NO
@@ -310,7 +313,7 @@ static BOOL appStartMeasurementRead;
 
     // The timer must be invalidated from the thread on which the timer was installed, see
     // https://developer.apple.com/documentation/foundation/nstimer/1415405-invalidate#1770468
-    [_dispatchQueue dispatchOnMainQueue:^{
+    [_dispatchQueue dispatchAsyncOnMainQueue:^{
         if (weakSelf == nil) {
             SENTRY_LOG_DEBUG(@"WeakSelf is nil. Not invalidating deadlineTimer.");
             return;
@@ -409,14 +412,17 @@ static BOOL appStartMeasurementRead;
     [self canBeFinished];
 }
 
-- (SentryTraceContext *)traceContext
+- (nullable SentryTraceContext *)traceContext
 {
     if (_traceContext == nil) {
         @synchronized(self) {
             if (_traceContext == nil) {
-                _traceContext = [[SentryTraceContext alloc] initWithTracer:self
-                                                                     scope:_hub.scope
-                                                                   options:SentrySDK.options];
+                _traceContext = [[SentryTraceContext alloc]
+                    initWithTracer:self
+                             scope:_hub.scope
+                           options:_hub.client.options
+                               ?: SentrySDK.options]; // We should remove static classes and always
+                                                      // inject dependencies.
             }
         }
     }
@@ -627,9 +633,8 @@ static BOOL appStartMeasurementRead;
 - (void)captureTransactionWithProfile:(SentryTransaction *)transaction
                        startTimestamp:(NSDate *)startTimestamp
 {
-    SentryEnvelopeItem *profileEnvelopeItem =
-        [SentryProfiler createProfilingEnvelopeItemForTransaction:transaction
-                                                   startTimestamp:startTimestamp];
+    SentryEnvelopeItem *profileEnvelopeItem
+        = sentry_traceProfileEnvelopeItem(transaction, startTimestamp);
 
     if (!profileEnvelopeItem) {
         [_hub captureTransaction:transaction withScope:_hub.scope];
@@ -708,7 +713,7 @@ static BOOL appStartMeasurementRead;
         }
 #    endif // SENTRY_HAS_UIKIT
 
-        [SentryProfiler recordMetrics];
+        [SentryTraceProfiler recordMetrics];
         transaction.endSystemTime
             = SentryDependencyContainer.sharedInstance.dateProvider.systemTime;
     }
@@ -745,7 +750,8 @@ static BOOL appStartMeasurementRead;
 
 #if SENTRY_HAS_UIKIT
 
-- (nullable SentryAppStartMeasurement *)getAppStartMeasurement
+- (nullable SentryAppStartMeasurement *)getAppStartMeasurement SENTRY_DISABLE_THREAD_SANITIZER(
+    "double-checked lock produce false alarms")
 {
     // Only send app start measurement for transactions generated by auto performance
     // instrumentation.
@@ -842,7 +848,8 @@ static BOOL appStartMeasurementRead;
     if (framesTracker.isRunning) {
         CFTimeInterval framesDelay = [framesTracker
                 getFramesDelay:self.startSystemTime
-            endSystemTimestamp:SentryDependencyContainer.sharedInstance.dateProvider.systemTime];
+            endSystemTimestamp:SentryDependencyContainer.sharedInstance.dateProvider.systemTime]
+                                         .delayDuration;
 
         if (framesDelay >= 0) {
             [self setDataValue:@(framesDelay) forKey:@"frames.delay"];

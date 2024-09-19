@@ -137,6 +137,26 @@ class SentryScreenshotIntegrationTests: XCTestCase {
     }
 #endif // os(iOS) || targetEnvironment(macCatalyst)
     
+    func test_NoScreenShot_WhenDiscardedInCallback() {
+        let sut = fixture.getSut()
+        
+        let expectation = expectation(description: "BeforeCaptureScreenshot must be called.")
+        
+        let options = Options()
+        options.beforeCaptureScreenshot = { _ in
+            expectation.fulfill()
+            return false
+        }
+        
+        sut.install(with: options)
+        
+        let newAttachmentList = sut.processAttachments([], for: Event(error: NSError(domain: "", code: -1)))
+        
+        wait(for: [expectation], timeout: 1.0)
+        
+        XCTAssertEqual(newAttachmentList?.count, 0)
+    }
+    
     func test_noScreenshot_keepAttachment() {
         let sut = fixture.getSut()
         let event = Event()
@@ -157,17 +177,17 @@ class SentryScreenshotIntegrationTests: XCTestCase {
         let newAttachmentList = sut.processAttachments([], for: event) ?? []
         
         XCTAssertEqual(newAttachmentList.count, 3)
-        XCTAssertEqual(newAttachmentList[0].filename, "screenshot.png")
-        XCTAssertEqual(newAttachmentList[1].filename, "screenshot-2.png")
-        XCTAssertEqual(newAttachmentList[2].filename, "screenshot-3.png")
+        XCTAssertEqual(try XCTUnwrap(newAttachmentList.first).filename, "screenshot.png")
+        XCTAssertEqual(try XCTUnwrap(newAttachmentList.element(at: 1)).filename, "screenshot-2.png")
+        XCTAssertEqual(try XCTUnwrap(newAttachmentList.element(at: 2)).filename, "screenshot-3.png")
         
-        XCTAssertEqual(newAttachmentList[0].contentType, "image/png")
-        XCTAssertEqual(newAttachmentList[1].contentType, "image/png")
-        XCTAssertEqual(newAttachmentList[2].contentType, "image/png")
+        XCTAssertEqual(try XCTUnwrap(newAttachmentList.first).contentType, "image/png")
+        XCTAssertEqual(try XCTUnwrap(newAttachmentList.element(at: 1)).contentType, "image/png")
+        XCTAssertEqual(try XCTUnwrap(newAttachmentList.element(at: 2)).contentType, "image/png")
         
-        XCTAssertEqual(newAttachmentList[0].data?.count, 1)
-        XCTAssertEqual(newAttachmentList[1].data?.count, 2)
-        XCTAssertEqual(newAttachmentList[2].data?.count, 3)
+        XCTAssertEqual(try XCTUnwrap(newAttachmentList.first).data?.count, 1)
+        XCTAssertEqual(try XCTUnwrap(newAttachmentList.element(at: 1)).data?.count, 2)
+        XCTAssertEqual(try XCTUnwrap(newAttachmentList.element(at: 2)).data?.count, 3)
         
     }
     

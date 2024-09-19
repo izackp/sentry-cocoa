@@ -179,6 +179,12 @@ typedef struct SentryCrash_MonitorContext {
         const char *kernelVersion;
         const char *osVersion;
         bool isJailbroken;
+        /**
+         * @warning We must not send this information off device because Apple forbids that.
+         * We are allowed send the amount of time that has elapsed between events that occurred
+         * within the app though. For more information see
+         * https://developer.apple.com/documentation/bundleresources/privacy_manifest_files/describing_use_of_required_reason_api#4278394.
+         */
         const char *bootTime;
         const char *appStartTime;
         const char *executablePath;
@@ -213,9 +219,6 @@ typedef struct SentryCrash_MonitorContext {
         /** Reason field from the last deallocated exception. */
         const char *reason;
     } ZombieException;
-
-    /** Full path to the console log, if any. */
-    const char *consoleLogPath;
 
 } SentryCrash_MonitorContext;
 
