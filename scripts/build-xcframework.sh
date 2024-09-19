@@ -35,7 +35,7 @@ generate_xcframework() {
     xcodebuild -project Sentry.xcodeproj/ -scheme "$scheme" -configuration "$resolved_configuration" -sdk iphoneos -destination 'platform=macOS,arch=arm64,variant=Mac Catalyst' -derivedDataPath ./Carthage/DerivedData_arm64 CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= CARTHAGE=YES MACH_O_TYPE="$MACH_O_TYPE" SUPPORTS_MACCATALYST=YES ENABLE_CODE_COVERAGE=NO GCC_GENERATE_DEBUGGING_SYMBOLS="$GCC_GENERATE_DEBUGGING_SYMBOLS"
 
     if [ "$MACH_O_TYPE" = "staticlib" ]; then
-        local infoPlist="Carthage/DerivedData_arm64/Build/Products/$resolved_configuration-maccatalyst/${scheme}.framework/Resources/Info.plist"
+        local infoPlist="Carthage/DerivedData_arm64/Build/Products/$resolved_configuration-maccatalyst/${resolved_product_name}.framework/Resources/Info.plist"
         plutil -replace "MinimumOSVersion" -string "100" "$infoPlist"
     fi
     
